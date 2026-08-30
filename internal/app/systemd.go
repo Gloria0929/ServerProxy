@@ -2,54 +2,52 @@ package app
 
 import "fmt"
 
-// SystemdUnit 生成幂等安装所需的 systemd unit（实现方案 §3.2）。
-// ExecStartPre 用内核 check 复核最后生效配置；ExecReload 仅在
-// 候选配置通过校验后由控制面触发。内核二进制由 install-kernel 安装到
-// <dataDir>/bin/sing-box，sp 启动时经 --core singbox 自动探测。
+// SystemdUnit 生成 systemd unit（实现方案 §3.2）。
+// 约定（与生成器行为强相关，勿随意改动）：
+//   - 面板未实现 sd_notify，因此 Type=simple；
+//   - 以 root 运行（TUN 需要），不依赖预创建的 serverproxy 用户；
+//   - ExecStartPre 的 `-` 前缀表示失败不阻塞启动：全新数据目录尚无
+//     runtime/config.json，首次启动由面板自行播种托管配置；
+//   - 内核二进制位于 <dataDir>/bin/sing-box（install-service /
+//     install-kernel 下载），sp 经 --core singbox 自动探测。
 func SystemdUnit(dataDir string) string {
 	if dataDir == "" {
 		dataDir = "/var/lib/serverproxy"
 	}
-	return fmt.Sprintf(`# ServerProxy 控制面 systemd unit（由 sp 		install-service 生成）
-	# 安装：sudo cp serverproxy.service /etc/systemd/system/ && sudo systemctl daemon-reload
+	// 注意：unit 内容必须顶格书写（systemd 对行首空白无官方保证，
+	// 行首制表符会导致 “Assignment outside of section”）。
+	return fmt.Sprintf(`# ServerProxy control plane (sing-box manager)
+# 安装：sudo cp serverproxy.service /etc/systemd/system/ && sudo systemctl daemon-reload
 
-	[Unit]
-	Description=ServerProxy control plane (sing-box manager)
-	Documentation=https://github.com/sagernet/sing-box
-	After=network-online.target
-	Wants=network-online.target
+[Unit]
+Description=ServerProxy control plane (sing-box manager)
+After=network-online.target
+Wants=network-online.target
 
-	[Service]
-	Type=notify
-	User=serverproxy
-	Group=serverproxy
-	ExecStartPre=+/usr/local/bin/sp check %s/runtime/config.json
-	ExecStart=/usr/local/bin/sp serve --listen 127.0.0.1:9090 --data-dir %s --core singbox
-	ExecReload=/bin/kill -HUP $MAINPID
-	Restart=on-failure
-	RestartSec=3s
-	StartLimitIntervalSec=60
-	StartLimitBurst=5
+[Service]
+Type=simple
+ExecStartPre=-/usr/local/bin/sp check %[1]s/runtime/config.json
+ExecStart=/usr/local/bin/sp serve --listen 127.0.0.1:9090 --data-dir %[1]s --core singbox
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=3s
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
-	# 最小能力集：TUN、原始套接字、绑定低端口
-	CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
-	AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
-	NoNewPrivileges=yes
-	DeviceAllow=/dev/net/tun rw
+# TUN / 原始套接字 / 低端口所需能力
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+DeviceAllow=/dev/net/tun rw
 
-	# 文件系统与网络加固
-	ProtectSystem=strict
-	ReadWritePaths=%s /var/log/serverproxy /run/serverproxy
-	ProtectHome=yes
-	PrivateTmp=yes
-	RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-	ProtectKernelTunables=yes
-	ProtectControlGroups=yes
-	RestrictSUIDSGID=yes
-	LockPersonality=yes
-	MemoryDenyWriteExecute=yes
+# 文件系统加固（数据目录可写，/tmp 私有供内核 check 使用）
+ProtectSystem=strict
+ReadWritePaths=%[1]s
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 
-	[Install]
-	WantedBy=multi-user.target
-`, dataDir, dataDir, dataDir)
+[Install]
+WantedBy=multi-user.target
+`, dataDir)
 }
