@@ -298,6 +298,11 @@ func parseGenericURL(raw string) (*store.NodeRecord, []string, error) {
 			spec["flow"] = flow
 		}
 	case "trojan", "hysteria2", "anytls":
+		// 常见订阅里 trojan://password@host 形链接把密码直接放在 userinfo 的用户名位，
+		// url 包解析后 Password() 为空——此时回落到 Username 作为密码。
+		if password == "" {
+			password = username
+		}
 		if password == "" {
 			return nil, nil, fmt.Errorf("%s 节点缺少密码", typeName)
 		}

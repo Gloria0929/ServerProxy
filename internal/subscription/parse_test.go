@@ -5,6 +5,7 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseURIList(t *testing.T) {
@@ -134,7 +135,10 @@ func TestSSRFBlockedRanges(t *testing.T) {
 }
 
 func TestScheduleIntervalFloor(t *testing.T) {
-	if ScheduleInterval("每小时") != 6*60*60 { // 最短 6 小时（实现方案 §5.3）
+	if ScheduleInterval("每小时") != 6*time.Hour { // 最短 6 小时（实现方案 §5.3）
 		t.Error("每小时应被提升到 6 小时下限")
+	}
+	if ScheduleInterval("每天") != 24*time.Hour {
+		t.Error("每天应映射为 24 小时")
 	}
 }

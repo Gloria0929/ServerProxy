@@ -322,6 +322,15 @@ textarea:focus {
   max-width: 1420px;
   margin: 0 auto;
 }
+.boot-shell {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 32px;
+}
+.boot-shell .loading-grid {
+  width: min(1120px, 100%);
+}
 .skeleton {
   height: 140px;
   border-radius: 13px;
@@ -415,6 +424,11 @@ textarea:focus {
   margin-top: 22px;
   padding-top: 22px;
   border-top: 1px solid #2b3329;
+}
+.settings-panel > .kernel-section:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 .kernel-section h3 {
   margin: 0 0 8px;
@@ -980,6 +994,24 @@ textarea:focus {
   color: #dce6d7;
   font-size: 13px;
   overflow-wrap: anywhere;
+}
+.network-section {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid #2b3329;
+}
+.network-section .setting-row {
+  border-top: 0;
+}
+.network-section h2 {
+  margin: 0;
+  color: #e4eadf;
+  font-size: 17px;
+}
+.network-section > p {
+  margin: 8px 0 0;
+  color: #98a396;
+  font-size: 13px;
 }
 .setting-row {
   display: flex;

@@ -1,5 +1,5 @@
 <template>
-  <main v-if="!loggedIn" class="login-shell">
+  <main v-if="sessionChecked && !loggedIn" class="login-shell">
     <section class="login-card" aria-labelledby="login-title">
       <div class="brand-lockup">
         <span class="brand-mark">SP</span>
@@ -24,7 +24,7 @@
     </section>
   </main>
 
-  <main v-else class="app-shell">
+  <main v-else-if="loggedIn" class="app-shell">
     <aside class="sidebar">
       <div class="sidebar-top">
         <div class="brand-lockup">
@@ -33,7 +33,7 @@
       </div>
       <nav aria-label="主导航">
         <button v-for="item in navItems" :key="item.id" class="nav-item" :class="{ active: view === item.id }"
-          type="button" @click="view = item.id">
+          type="button" @click="goView(item.id)">
           {{ item.label }}
         </button>
       </nav>
@@ -126,7 +126,7 @@
                 <div>
                   <h2>{{ selectedGroup?.name }}</h2>
                 </div>
-                <button class="text-button" type="button" @click="view = 'proxies'">
+                <button class="text-button" type="button" @click="goView('proxies')">
                   管理节点
                 </button>
               </div>
@@ -159,7 +159,7 @@
                 <div>
                   <h2>控制面事件</h2>
                 </div>
-                <button class="text-button" type="button" @click="view = 'logs'">
+                <button class="text-button" type="button" @click="goView('logs')">
                   全部日志
                 </button>
               </div>
@@ -179,8 +179,8 @@
               <h2>降低日常维护成本</h2>
               <div class="quick-actions">
                 <button class="button quiet" type="button" :disabled="actionLoading" @click="delayTest">
-                  测速全部节点</button><button class="button quiet" type="button" @click="view = 'config'">
-                  检查配置</button><button class="button quiet" type="button" @click="view = 'rules'">
+                  测速全部节点</button><button class="button quiet" type="button" @click="goView('config')">
+                  检查配置</button><button class="button quiet" type="button" @click="goView('rules')">
                   查看规则状态
                 </button>
               </div>
@@ -418,40 +418,6 @@
 
         <section v-else class="page-stack">
           <article class="panel settings-panel">
-            <h2>网络入口</h2>
-            <p>
-              变更入口设置会重新编译并应用配置，内核将短暂重启。
-            </p>
-            <div class="setting-row">
-              <div>
-                <h3>TUN 虚拟网卡</h3>
-                <p>
-                  创建虚拟网卡接管系统全部流量，无需逐应用设置代理。需要管理员权限：macOS / Linux 请用
-                  <code>sudo</code>
-                  启动面板后再开启。
-                </p>
-              </div>
-              <label class="switch">
-                <input type="checkbox" :checked="settings?.tun_enabled ?? false" :disabled="actionLoading"
-                  @change="toggleTun" /><span class="slider"></span>
-              </label>
-            </div>
-            <dl>
-              <div>
-                <dt>Web 监听</dt>
-                <dd>{{ settings?.web_listen ?? "—" }}</dd>
-              </div>
-              <div>
-                <dt>混合入站</dt>
-                <dd>{{ settings?.mixed_port ?? "—" }}（HTTP/SOCKS）</dd>
-              </div>
-              <div>
-                <dt>DNS 预设</dt>
-                <dd>{{ settings?.dns_preset ?? "—" }}</dd>
-              </div>
-            </dl>
-          </article>
-          <article class="panel settings-panel">
             <div class="kernel-section">
               <h3>内核部署</h3>
               <p>
@@ -464,6 +430,40 @@
                 {{ actionLoading ? "下载中…" : "下载内核" }}
               </button>
             </div>
+            <section class="network-section">
+              <h2>网络入口</h2>
+              <p>
+                变更入口设置会重新编译并应用配置，内核将短暂重启。
+              </p>
+              <div class="setting-row">
+                <div>
+                  <h3>TUN 虚拟网卡</h3>
+                  <p>
+                    创建虚拟网卡接管系统全部流量，无需逐应用设置代理。需要管理员权限：macOS / Linux 请用
+                    <code>sudo</code>
+                    启动面板后再开启。
+                  </p>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" :checked="settings?.tun_enabled ?? false" :disabled="actionLoading"
+                    @change="toggleTun" /><span class="slider"></span>
+                </label>
+              </div>
+              <dl>
+                <div>
+                  <dt>Web 监听</dt>
+                  <dd>{{ settings?.web_listen ?? "—" }}</dd>
+                </div>
+                <div>
+                  <dt>混合入站</dt>
+                  <dd>{{ settings?.mixed_port ?? "—" }}（HTTP/SOCKS）</dd>
+                </div>
+                <div>
+                  <dt>DNS 预设</dt>
+                  <dd>{{ settings?.dns_preset ?? "—" }}</dd>
+                </div>
+              </dl>
+            </section>
           </article>
         </section>
       </template>
@@ -505,10 +505,16 @@
       </div>
     </div>
   </main>
+
+  <main v-else class="boot-shell">
+    <div class="loading-grid" aria-label="正在验证会话">
+      <div v-for="item in 6" :key="item" class="skeleton"></div>
+    </div>
+  </main>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 
 type View =
@@ -520,6 +526,17 @@ type View =
   | "logs"
   | "config"
   | "settings";
+
+const VIEWS: View[] = [
+  "overview",
+  "proxies",
+  "subscriptions",
+  "rules",
+  "connections",
+  "logs",
+  "config",
+  "settings",
+];
 
 interface Traffic {
   upload_rate: number;
@@ -639,7 +656,24 @@ const navItems: { id: View; label: string }[] = [
 ];
 
 const view = ref<View>("overview");
+
+// 轻量 hash 路由：视图与 URL hash 同步，刷新/前进后退不丢页面。
+function goView(next: View) {
+  if (view.value !== next) view.value = next;
+  const target = `#/${next}`;
+  if (location.hash !== target) location.hash = target;
+}
+
+function viewFromHash(): View {
+  const key = decodeURIComponent(location.hash.replace(/^#\/?/, "")).trim();
+  return (VIEWS as string[]).includes(key) ? (key as View) : "overview";
+}
+
+function onHashChange() {
+  view.value = viewFromHash();
+}
 const loggedIn = ref(false);
+const sessionChecked = ref(false);
 const secret = ref("");
 const csrf = ref("");
 const loading = ref(true);
@@ -648,7 +682,12 @@ const loginError = ref("");
 const status = ref<Status | null>(null);
 const groups = ref<Group[]>([]);
 const subscriptions = ref<Subscription[]>([]);
-const selectedSubId = ref("");
+// 选中的订阅持久化到 localStorage，刷新后高亮与过滤保持一致。
+const selectedSubId = ref(localStorage.getItem("sp:selected-sub") ?? "");
+watch(selectedSubId, (v) => {
+  if (v) localStorage.setItem("sp:selected-sub", v);
+  else localStorage.removeItem("sp:selected-sub");
+});
 const ruleSets = ref<RuleSet[]>([]);
 const connections = ref<Connection[]>([]);
 const logs = ref<LogEntry[]>([]);
@@ -807,6 +846,9 @@ async function checkSession() {
     loggedIn.value = true;
   } catch {
     loggedIn.value = false;
+  } finally {
+    // 会话探测完成前显示加载骨架而非登录页，避免刷新时登录画面一闪而过。
+    sessionChecked.value = true;
   }
 }
 
@@ -1092,6 +1134,9 @@ async function logout() {
 }
 
 onMounted(async () => {
+  // 先从 URL hash 恢复上次页面，再探测会话。
+  view.value = viewFromHash();
+  window.addEventListener("hashchange", onHashChange);
   await checkSession();
   if (loggedIn.value) {
     await load();
@@ -1101,5 +1146,8 @@ onMounted(async () => {
   }
 });
 
-onBeforeUnmount(stopEvents);
+onBeforeUnmount(() => {
+  stopEvents();
+  window.removeEventListener("hashchange", onHashChange);
+});
 </script>
