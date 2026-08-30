@@ -120,6 +120,29 @@ systemctl status serverproxy
 - TUN 需要：内核加载 tun 模块（`ls /dev/net/tun`），并以 root 运行（unit 默认即 root）。
 - 面板默认监听 `127.0.0.1:9090`；日志：`journalctl -u serverproxy -f`。
 
+### Docker
+
+镜像多阶段构建：内置 sing-box 内核 + 编译后的控制面，前端产物随 `go:embed` 打进二进制（无需 Node）。
+
+```bash
+# 方式一：docker compose（推荐）
+cd packaging/docker
+docker compose up -d --build
+
+# 方式二：直接用 Docker 命令
+docker build -t serverproxy -f packaging/docker/Dockerfile .
+docker run -d --name serverproxy \
+  -p 9090:9090 \
+  -v serverproxy-data:/var/lib/serverproxy \
+  serverproxy
+```
+
+- 首次启动生成的登录密钥打印在容器日志：`docker logs serverproxy`；也可用 `-e SP_SECRET=你的密钥` 固定密钥。
+- 数据保存在卷 `serverproxy-data`（compose 方式为 `packaging/docker/data/` 目录），升级镜像不丢配置。
+- 镜像入口即 `sp`，可运行其他子命令：`docker run --rm serverproxy version`。
+- **TUN**：容器内使用 TUN 需添加 `--cap-add NET_ADMIN`、挂载 `/dev/net/tun`（compose 文件里已给出注释配置），并建议配合 `network_mode: host`。
+- 内核版本更新：面板「设置 → 内核部署」可随时重新下载到数据目录，覆盖镜像内置版本。
+
 ### Windows
 
 ```powershell
@@ -186,7 +209,6 @@ go build -o sp.exe ./cmd/sp
 
 ## 常见问题
 
-- **刷新页面出现登录页闪烁 / 刷新后回到概览**：已通过会话预检与 hash 路由解决（`/#/logs` 直达日志页），请使用最新构建。
 - **订阅更新报 502**：部分机场按 User-Agent 白名单分发内容，面板会自动以 Clash/Mihomo 系 UA 降级重试；若仍失败说明订阅源侧故障，旧节点会保留不受影响。
 - **全局/直连/规则模式不生效**：切换模式会重编译配置并重启内核子进程（sing-box 的 SIGHUP 不重载主配置）；「当前出口」在直连模式下显示「直连」，全局/规则模式显示实际节点。
 - **TUN 报 `operation not permitted`**：需要以 root（sudo）/管理员权限运行面板。

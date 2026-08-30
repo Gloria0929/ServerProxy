@@ -1,0 +1,20 @@
+services:
+  serverproxy:
+    build:
+      context: ../..
+      dockerfile: packaging/docker/Dockerfile
+    image: serverproxy:latest
+    container_name: serverproxy
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./data:/var/lib/serverproxy
+    environment:
+      # 可选：固定登录密钥；留空则首次启动自动生成并在日志中打印一次
+      - SP_SECRET=
+    # TUN 模式取消下面注释（需要宿主机内核支持 /dev/net/tun）：
+    # cap_add:
+    #   - NET_ADMIN
+    # devices:
+    #   - /dev/net/tun
