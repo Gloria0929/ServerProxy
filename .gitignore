@@ -1,7 +1,11 @@
 .DS_Store
 .serverproxy/
+runtime/
 dist/
 web/node_modules/
 web/.vite/
 *.env
 docs
+/sp
+/sp.exe
+/cmd/sp/sp
