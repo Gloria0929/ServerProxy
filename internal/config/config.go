@@ -194,12 +194,20 @@ func CompileManaged(settings store.Settings, nodes []store.NodeRecord, ruleSets 
 	var routeRuleSets []map[string]any
 	var cnSets, adsSets []string
 	for _, rs := range ruleSets {
-		entry := map[string]any{"tag": rs.ID, "type": "local", "format": rs.Format}
-		if rs.Kind == "remote" {
+		entry := map[string]any{"tag": rs.ID, "format": rs.Format}
+		switch {
+		case rs.LocalPath != "":
+			// 本地缓存优先：内核启动不再依赖外网。
+			// （大陆网络直连 raw.githubusercontent.com 超时会导致 sing-box
+			// 初始化远程规则集 FATAL 退出。）
+			entry["type"] = "local"
+			entry["path"] = rs.LocalPath
+		case rs.Kind == "remote":
 			entry["type"] = "remote"
 			entry["url"] = rs.URL
 			entry["update_interval"] = rs.Interval
-		} else {
+		default:
+			entry["type"] = "local"
 			entry["path"] = rs.InitialPath
 		}
 		routeRuleSets = append(routeRuleSets, entry)

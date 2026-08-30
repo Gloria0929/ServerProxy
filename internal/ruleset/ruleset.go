@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -50,7 +52,7 @@ func (m *Manager) save(sets []store.RuleSetRecord) error {
 	return m.root.SaveJSON("rule_sets.json", sets)
 }
 
-// List 返回全部规则集。
+// List 返回全部规则集；本地缓存存在时回填 LocalPath，供托管编译优先使用本地引用。
 func (m *Manager) List() []store.RuleSetRecord {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -58,34 +60,69 @@ func (m *Manager) List() []store.RuleSetRecord {
 	if sets == nil {
 		sets = []store.RuleSetRecord{}
 	}
+	for i := range sets {
+		if sets[i].InitialPath != "" {
+			if _, err := os.Stat(m.root.Path(sets[i].InitialPath)); err == nil {
+				sets[i].LocalPath = sets[i].InitialPath
+			}
+		}
+	}
 	sort.Slice(sets, func(i, j int) bool { return sets[i].Name < sets[j].Name })
 	return sets
 }
 
-// SeedDefaults 首次运行时注入两个常用远程规则集。
+// mirrorFromRaw 把 raw.githubusercontent.com 地址换成 jsDelivr 镜像：
+// 大陆网络直连 GitHub Raw 超时会导致内核规则集初始化失败，jsDelivr 通常可达。
+func mirrorFromRaw(raw string) string {
+	const prefix = "https://raw.githubusercontent.com/"
+	if !strings.HasPrefix(raw, prefix) {
+		return raw
+	}
+	rest := strings.TrimPrefix(raw, prefix) // user/repo/branch/path...
+	parts := strings.SplitN(rest, "/", 3)
+	if len(parts) != 3 {
+		return raw
+	}
+	return "https://cdn.jsdelivr.net/gh/" + parts[0] + "/" + parts[1] + "@" + parts[2]
+}
+
+// SeedDefaults 首次运行时注入两个常用规则集（使用大陆可达的 jsDelivr 源），
+// 并顺带把已有记录里的旧 GitHub Raw 地址迁移到镜像。
 func (m *Manager) SeedDefaults() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if sets := m.load(); len(sets) > 0 {
-		return nil
+	sets := m.load()
+	if sets == nil {
+		sets = []store.RuleSetRecord{
+			{
+				ID: "geosite-geolocation-cn", Name: "geosite-geolocation-cn",
+				Kind: "remote", Format: "binary",
+				URL:      "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
+				Interval: "24h", InitialPath: "rules/geosite-geolocation-cn.srs",
+				Status: "pending",
+			},
+			{
+				ID: "geosite-category-ads-all", Name: "geosite-category-ads-all",
+				Kind: "remote", Format: "binary",
+				URL:      "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
+				Interval: "24h", InitialPath: "rules/geosite-category-ads-all.srs",
+				Status: "pending",
+			},
+		}
+		return m.save(sets)
 	}
-	sets := []store.RuleSetRecord{
-		{
-			ID: "geosite-geolocation-cn", Name: "geosite-geolocation-cn",
-			Kind: "remote", Format: "binary",
-			URL:      "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
-			Interval: "24h", InitialPath: "rules/geosite-geolocation-cn.srs",
-			Status: "ok", LastUpdated: time.Now().UTC(),
-		},
-		{
-			ID: "geosite-category-ads-all", Name: "geosite-category-ads-all",
-			Kind: "remote", Format: "binary",
-			URL:      "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
-			Interval: "24h", InitialPath: "rules/geosite-category-ads-all.srs",
-			Status: "ok", LastUpdated: time.Now().UTC(),
-		},
+	// 迁移旧 GitHub Raw 源（幂等）。
+	dirty := false
+	for i := range sets {
+		if mirrored := mirrorFromRaw(sets[i].URL); mirrored != sets[i].URL {
+			sets[i].URL = mirrored
+			dirty = true
+		}
 	}
-	return m.save(sets)
+	if dirty {
+		return m.save(sets)
+	}
+	return nil
 }
 
 // Add 新增远程规则集；格式必须为 sing-box source/binary（实现方案 §5.4）。

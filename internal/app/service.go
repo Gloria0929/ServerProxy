@@ -175,6 +175,18 @@ func NewService(cfg Config) (*Service, error) {
 	if err := s.ruleSets.SeedDefaults(); err != nil {
 		return nil, err
 	}
+	// 规则集初始缓存（尽力而为）：优先把远程规则集落成本地副本，
+	// 使托管编译引用本地文件，内核启动不再依赖外网
+	// （大陆网络直连 GitHub Raw 超时会让 sing-box 初始化规则集时 FATAL 退出）。
+	initCtx, initCancel := context.WithTimeout(context.Background(), 90*time.Second)
+	for _, rs := range s.ruleSets.List() {
+		if rs.Kind == "remote" && rs.LocalPath == "" {
+			if err := s.ruleSets.Update(initCtx, rs.ID); err != nil {
+				logger.Warn("规则集初始下载失败（进程仍会启动）", "rule_set", rs.Name, "err", err)
+			}
+		}
+	}
+	initCancel()
 	s.cfgs, err = config.NewManager(root, adapter, config.Providers{
 		Settings: s.Settings,
 		Nodes:    s.subs.AllNodes,

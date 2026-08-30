@@ -212,4 +212,5 @@ go build -o sp.exe ./cmd/sp
 - **订阅更新报 502**：部分机场按 User-Agent 白名单分发内容，面板会自动以 Clash/Mihomo 系 UA 降级重试；若仍失败说明订阅源侧故障，旧节点会保留不受影响。
 - **全局/直连/规则模式不生效**：切换模式会重编译配置并重启内核子进程（sing-box 的 SIGHUP 不重载主配置）；「当前出口」在直连模式下显示「直连」，全局/规则模式显示实际节点。
 - **TUN 报 `operation not permitted`**：需要以 root（sudo）/管理员权限运行面板。
+- **内核启动报 `FATAL: initialize rule-set ... raw.githubusercontent.com ... i/o timeout`（常见于大陆服务器）**：规则集默认源已改用 jsDelivr 镜像，且编译时优先引用面板已下载的本地副本（`<data-dir>/rules/*.srs`），内核启动不再依赖外网。升级后重启面板即可；若沿用旧数据目录，重启后登录面板切换一次代理模式（或删除 `runtime/config.json` 与 `revisions.json` 让种子配置重新编译）。
 - **内核启动失败 `bad tun name` / `detour to an empty direct outbound`**：sing-box 1.13+ 的约束，面板已自动规避（不写接口名、DNS 不写 detour）。

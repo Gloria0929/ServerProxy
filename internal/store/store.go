@@ -227,13 +227,16 @@ type NodeRecord struct {
 
 // RuleSetRecord 远程/本地规则集（rule_sets 表）。
 type RuleSetRecord struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Kind        string    `json:"kind"`   // remote | local
-	Format      string    `json:"format"` // source | binary
-	URL         string    `json:"url,omitempty"`
-	Interval    string    `json:"interval"`
-	InitialPath string    `json:"initial_path"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`   // remote | local
+	Format      string `json:"format"` // source | binary
+	URL         string `json:"url,omitempty"`
+	Interval    string `json:"interval"`
+	InitialPath string `json:"initial_path"`
+	// LocalPath 表示本地缓存已存在（值为 InitialPath 的相对路径），
+	// 编译托管配置时优先使用本地引用，内核启动不再依赖外网。
+	LocalPath   string    `json:"local_path,omitempty"`
 	Status      string    `json:"status"` // ok | failed | pending
 	LastError   string    `json:"last_error,omitempty"`
 	ETag        string    `json:"etag,omitempty"`
