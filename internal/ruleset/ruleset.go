@@ -86,29 +86,48 @@ func mirrorFromRaw(raw string) string {
 	return "https://cdn.jsdelivr.net/gh/" + parts[0] + "/" + parts[1] + "@" + parts[2]
 }
 
-// SeedDefaults 首次运行时注入两个常用规则集（使用大陆可达的 jsDelivr 源），
-// 并顺带把已有记录里的旧 GitHub Raw 地址迁移到镜像。
+// DefaultRuleSets 默认规则集定义，用于首次初始化与缺失补充。
+var DefaultRuleSets = []store.RuleSetRecord{
+	{
+		ID: "geosite-geolocation-cn", Name: "geosite-geolocation-cn",
+		Kind: "remote", Format: "binary",
+		URL:      "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
+		Interval: "24h", InitialPath: "rules/geosite-geolocation-cn.srs",
+		Status: "pending",
+	},
+	{
+		ID: "geosite-category-ads-all", Name: "geosite-category-ads-all",
+		Kind: "remote", Format: "binary",
+		URL:      "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
+		Interval: "24h", InitialPath: "rules/geosite-category-ads-all.srs",
+		Status: "pending",
+	},
+	{
+		ID: "geosite-cn", Name: "geosite-cn",
+		Kind: "remote", Format: "binary",
+		URL:      "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
+		Interval: "24h", InitialPath: "rules/geosite-cn.srs",
+		Status: "pending",
+	},
+	{
+		ID: "geoip-cn", Name: "geoip-cn",
+		Kind: "remote", Format: "binary",
+		URL:      "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs",
+		Interval: "24h", InitialPath: "rules/geoip-cn.srs",
+		Status: "pending",
+	},
+}
+
+// SeedDefaults 首次运行时注入默认规则集（使用大陆可达的 jsDelivr 源），
+// 并顺带把已有记录里的旧 GitHub Raw 地址迁移到镜像；
+// 对已有安装会自动补充缺失的默认规则集（幂等）。
 func (m *Manager) SeedDefaults() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	sets := m.load()
 	if sets == nil {
-		sets = []store.RuleSetRecord{
-			{
-				ID: "geosite-geolocation-cn", Name: "geosite-geolocation-cn",
-				Kind: "remote", Format: "binary",
-				URL:      "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
-				Interval: "24h", InitialPath: "rules/geosite-geolocation-cn.srs",
-				Status: "pending",
-			},
-			{
-				ID: "geosite-category-ads-all", Name: "geosite-category-ads-all",
-				Kind: "remote", Format: "binary",
-				URL:      "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
-				Interval: "24h", InitialPath: "rules/geosite-category-ads-all.srs",
-				Status: "pending",
-			},
-		}
+		sets = make([]store.RuleSetRecord, len(DefaultRuleSets))
+		copy(sets, DefaultRuleSets)
 		return m.save(sets)
 	}
 	// 迁移旧 GitHub Raw 源（幂等）。
@@ -116,6 +135,17 @@ func (m *Manager) SeedDefaults() error {
 	for i := range sets {
 		if mirrored := mirrorFromRaw(sets[i].URL); mirrored != sets[i].URL {
 			sets[i].URL = mirrored
+			dirty = true
+		}
+	}
+	// 补充缺失的默认规则集（幂等）。
+	existingIDs := map[string]bool{}
+	for _, s := range sets {
+		existingIDs[s.ID] = true
+	}
+	for _, def := range DefaultRuleSets {
+		if !existingIDs[def.ID] {
+			sets = append(sets, def)
 			dirty = true
 		}
 	}

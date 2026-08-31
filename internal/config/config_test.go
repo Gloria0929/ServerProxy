@@ -176,10 +176,20 @@ func TestCompileManagedShape(t *testing.T) {
 		Fingerprint: "fp1", DisplayName: "香港 01", Type: "trojan",
 		Spec: []byte(`{"type":"trojan","tag":"sub-abc","server":"hk.example.com","server_port":443,"password":"pw"}`),
 	}}
-	ruleSets := []store.RuleSetRecord{{
-		ID: "geosite-cn", Name: "geosite-geolocation-cn", Kind: "remote", Format: "binary",
-		URL: "https://example.com/cn.srs", Interval: "24h", InitialPath: "rules/cn.srs",
-	}}
+	ruleSets := []store.RuleSetRecord{
+		{
+			ID: "geosite-cn", Name: "geosite-cn", Kind: "remote", Format: "binary",
+			URL: "https://example.com/cn.srs", Interval: "24h", InitialPath: "rules/cn.srs",
+		},
+		{
+			ID: "geoip-cn", Name: "geoip-cn", Kind: "remote", Format: "binary",
+			URL: "https://example.com/geoip-cn.srs", Interval: "24h", InitialPath: "rules/geoip-cn.srs",
+		},
+		{
+			ID: "geosite-category-ads-all", Name: "geosite-category-ads-all", Kind: "remote", Format: "binary",
+			URL: "https://example.com/ads.srs", Interval: "24h", InitialPath: "rules/ads.srs",
+		},
+	}
 	settings := store.DefaultSettings()
 	settings.TUNEnabled = true
 	content, summary, err := CompileManaged(settings, nodes, ruleSets)
@@ -194,6 +204,7 @@ func TestCompileManagedShape(t *testing.T) {
 		Outbounds []map[string]any `json:"outbounds"`
 		Route     struct {
 			RuleSet []map[string]any `json:"rule_set"`
+			Rules   []map[string]any `json:"rules"`
 			Final   string           `json:"final"`
 		} `json:"route"`
 	}
@@ -206,10 +217,163 @@ func TestCompileManagedShape(t *testing.T) {
 	if doc.Route.Final != manualTag {
 		t.Errorf("final = %s", doc.Route.Final)
 	}
-	if len(doc.Route.RuleSet) != 1 {
-		t.Errorf("rule_set = %d", len(doc.Route.RuleSet))
+	if len(doc.Route.RuleSet) != 3 {
+		t.Errorf("rule_set = %d, want 3", len(doc.Route.RuleSet))
+	}
+	// 验证规则包含 geoip-cn
+	foundGeoIP := false
+	for _, rule := range doc.Route.Rules {
+		if rs, ok := rule["rule_set"].([]any); ok {
+			for _, r := range rs {
+				if r == "geoip-cn" {
+					foundGeoIP = true
+				}
+			}
+		}
+	}
+	if !foundGeoIP {
+		t.Error("route rules should contain geoip-cn rule set")
 	}
 	// 编译产物必须通过自身校验。
+	if _, err := Validate(content); err != nil {
+		t.Fatalf("编译产物未通过校验: %v", err)
+	}
+}
+
+// TestCompileManagedFallbackWithoutCNRules 验证规则集为空时的兜底逻辑。
+func TestCompileManagedFallbackWithoutCNRules(t *testing.T) {
+	nodes := []store.NodeRecord{{
+		Fingerprint: "fp1", DisplayName: "香港 01", Type: "trojan",
+		Spec: []byte(`{"type":"trojan","tag":"sub-abc","server":"hk.example.com","server_port":443,"password":"pw"}`),
+	}}
+	// 仅广告规则集，无中国相关规则集 — 触发兜底逻辑。
+	ruleSets := []store.RuleSetRecord{
+		{
+			ID: "geosite-category-ads-all", Name: "geosite-category-ads-all", Kind: "remote", Format: "binary",
+			URL: "https://example.com/ads.srs", Interval: "24h", InitialPath: "rules/ads.srs",
+		},
+	}
+	settings := store.DefaultSettings()
+	content, _, err := CompileManaged(settings, nodes, ruleSets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Route struct {
+			Rules []map[string]any `json:"rules"`
+		} `json:"route"`
+		DNS struct {
+			Rules []map[string]any `json:"rules"`
+		} `json:"dns"`
+	}
+	if err := json.Unmarshal(content, &doc); err != nil {
+		t.Fatal(err)
+	}
+	// 验证回退规则包含 domain_suffix（中国顶级域）。
+	foundFallback := false
+	for _, rule := range doc.Route.Rules {
+		if ds, ok := rule["domain_suffix"].([]any); ok {
+			for _, d := range ds {
+				if d == "cn" {
+					foundFallback = true
+				}
+			}
+		}
+	}
+	if !foundFallback {
+		t.Error("route rules should contain domain_suffix fallback for cn when CN rule sets are empty")
+	}
+	// 验证 DNS 回退包含 domain_suffix。
+	foundDNSFallback := false
+	for _, rule := range doc.DNS.Rules {
+		if ds, ok := rule["domain_suffix"].([]any); ok {
+			for _, d := range ds {
+				if d == "cn" {
+					foundDNSFallback = true
+				}
+			}
+		}
+	}
+	if !foundDNSFallback {
+		t.Error("DNS rules should contain domain_suffix fallback when CN rule sets are empty")
+	}
+	// 验证 domain_keyword 兜底规则存在。
+	foundKeyword := false
+	for _, rule := range doc.Route.Rules {
+		if _, ok := rule["domain_keyword"]; ok {
+			foundKeyword = true
+		}
+	}
+	if !foundKeyword {
+		t.Error("route rules should contain domain_keyword fallback")
+	}
+	if _, err := Validate(content); err != nil {
+		t.Fatalf("编译产物未通过校验: %v", err)
+	}
+}
+
+// TestCompileManagedDNSSplit 验证 DNS 分流：国内域名走 local-dns，其余走 fakeip。
+func TestCompileManagedDNSSplit(t *testing.T) {
+	nodes := []store.NodeRecord{{
+		Fingerprint: "fp1", DisplayName: "香港 01", Type: "trojan",
+		Spec: []byte(`{"type":"trojan","tag":"sub-abc","server":"hk.example.com","server_port":443,"password":"pw"}`),
+	}}
+	ruleSets := []store.RuleSetRecord{
+		{
+			ID: "geosite-cn", Name: "geosite-cn", Kind: "remote", Format: "binary",
+			URL: "https://example.com/cn.srs", Interval: "24h", InitialPath: "rules/cn.srs",
+		},
+	}
+	settings := store.DefaultSettings()
+	content, _, err := CompileManaged(settings, nodes, ruleSets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		DNS struct {
+			Servers []map[string]any `json:"servers"`
+			Rules   []map[string]any `json:"rules"`
+		} `json:"dns"`
+	}
+	if err := json.Unmarshal(content, &doc); err != nil {
+		t.Fatal(err)
+	}
+	// 验证 DNS 服务器包含 local-dns。
+	foundLocalDNS := false
+	for _, srv := range doc.DNS.Servers {
+		if tag, ok := srv["tag"].(string); ok && tag == "local-dns" {
+			foundLocalDNS = true
+		}
+	}
+	if !foundLocalDNS {
+		t.Error("DNS servers should contain local-dns")
+	}
+	// 验证 DNS 规则包含 CN 分流（rule_set → local-dns）。
+	foundCNRule := false
+	for _, rule := range doc.DNS.Rules {
+		if rs, ok := rule["rule_set"].([]any); ok {
+			for _, r := range rs {
+				if r == "geosite-cn" {
+					if srv, ok := rule["server"].(string); ok && srv == "local-dns" {
+						foundCNRule = true
+					}
+				}
+			}
+		}
+	}
+	if !foundCNRule {
+		t.Error("DNS rules should route CN domains to local-dns")
+	}
+	// 验证 fakeip 规则存在。
+	foundFakeIP := false
+	for _, rule := range doc.DNS.Rules {
+		if srv, ok := rule["server"].(string); ok && srv == "fakeip-dns" {
+			foundFakeIP = true
+		}
+	}
+	if !foundFakeIP {
+		t.Error("DNS rules should contain fakeip-dns for foreign domains")
+	}
 	if _, err := Validate(content); err != nil {
 		t.Fatalf("编译产物未通过校验: %v", err)
 	}

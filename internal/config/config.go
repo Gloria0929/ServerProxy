@@ -136,6 +136,14 @@ const (
 	autoTag   = "auto"
 )
 
+// 规则集下载失败时的兜底规则：常见中国顶级域与高频国内网站关键词。
+var fallbackCNTLDs = []string{"cn", "com.cn", "net.cn", "org.cn", "gov.cn", "edu.cn", "mil.cn", "ac.cn"}
+var fallbackCNKeywords = []string{
+	"baidu", "qq", "taobao", "alipay", "weixin",
+	"163", "sina", "sohu", "douyin", "bilibili",
+	"zhihu", "jd", "mi", "huawei", "xiaomi",
+}
+
 // CompileManaged 由期望状态编译 sing-box 候选配置。
 func CompileManaged(settings store.Settings, nodes []store.NodeRecord, ruleSets []store.RuleSetRecord) ([]byte, string, error) {
 	var outbounds []map[string]any
@@ -188,11 +196,10 @@ func CompileManaged(settings store.Settings, nodes []store.NodeRecord, ruleSets 
 	}
 
 	// DNS 预设（实现方案 §5.2；1.13+ 下 DNS 默认直连解析，勿写 detour: direct）。
-	dns := buildDNS(settings)
 
 	// 规则集与基础规则。
 	var routeRuleSets []map[string]any
-	var cnSets, adsSets []string
+	var geoSiteSets, geoipSets, adsSets []string
 	for _, rs := range ruleSets {
 		entry := map[string]any{"tag": rs.ID, "format": rs.Format}
 		switch {
@@ -211,11 +218,14 @@ func CompileManaged(settings store.Settings, nodes []store.NodeRecord, ruleSets 
 			entry["path"] = rs.InitialPath
 		}
 		routeRuleSets = append(routeRuleSets, entry)
+		lower := strings.ToLower(rs.Name)
 		switch {
-		case strings.Contains(rs.Name, "ads"):
+		case strings.Contains(lower, "ads"):
 			adsSets = append(adsSets, rs.ID)
-		case strings.Contains(rs.Name, "cn") || strings.Contains(rs.Name, "CN"):
-			cnSets = append(cnSets, rs.ID)
+		case strings.Contains(lower, "geoip") && strings.Contains(lower, "cn"):
+			geoipSets = append(geoipSets, rs.ID)
+		case strings.Contains(lower, "cn"):
+			geoSiteSets = append(geoSiteSets, rs.ID)
 		}
 	}
 	mode := settings.ProxyMode
@@ -223,26 +233,45 @@ func CompileManaged(settings store.Settings, nodes []store.NodeRecord, ruleSets 
 		mode = "rule"
 	}
 
-	// 基础规则：默认规则模式；global/direct 下跳过规则集匹配，仅保留嗅探与 DNS 兜底。
+	// DNS 分流：国内域名用 local-dns（223.5.5.5 UDP）直连解析，避免 DNS 泄露到代理出口。
+	dns := buildDNS(settings, geoSiteSets)
+
+	// 基础规则：默认规则模式；global/direct 下跳过规则集匹配，仅保留嗅探与 DNS 直连。
 	var rules []map[string]any
 	final := manualTag
 	switch mode {
 	case "global":
 		final = manualTag
-		rules = []map[string]any{{"action": "sniff"}, {"protocol": "dns", "action": "sniff"}}
+		rules = []map[string]any{{"action": "sniff"}, {"protocol": "dns", "outbound": "direct"}}
 	case "direct":
 		final = "direct"
-		rules = []map[string]any{{"action": "sniff"}, {"protocol": "dns", "action": "sniff"}}
+		rules = []map[string]any{{"action": "sniff"}, {"protocol": "dns", "outbound": "direct"}}
 	default: // rule
 		final = manualTag
 		rules = []map[string]any{{"action": "sniff"}}
+		if len(settings.ProxyDomains) > 0 {
+			// 强制代理域名：优先级高于国内直连规则（如 openlaw.cn 等需要走代理的域名）。
+			rules = append(rules, map[string]any{"domain_suffix": settings.ProxyDomains, "outbound": manualTag})
+		}
 		if len(adsSets) > 0 {
 			rules = append(rules, map[string]any{"rule_set": adsSets, "action": "reject"})
 		}
 		rules = append(rules, map[string]any{"ip_is_private": true, "outbound": "direct"})
-		if len(cnSets) > 0 {
-			rules = append(rules, map[string]any{"rule_set": cnSets, "outbound": "direct"})
+		// DNS 协议流量显式直连，防止回落至代理出口。
+		rules = append(rules, map[string]any{"protocol": "dns", "outbound": "direct"})
+		// 中国 IP 直连（geoip-cn）。
+		if len(geoipSets) > 0 {
+			rules = append(rules, map[string]any{"rule_set": geoipSets, "outbound": "direct"})
 		}
+		// 中国域名直连（geosite-cn 等）。
+		if len(geoSiteSets) > 0 {
+			rules = append(rules, map[string]any{"rule_set": geoSiteSets, "outbound": "direct"})
+		} else {
+			// 兜底：规则集为空时，通过常见国内域名后缀直连，避免全部流量走代理。
+			rules = append(rules, map[string]any{"domain_suffix": fallbackCNTLDs, "outbound": "direct"})
+		}
+		// 常见国内网站域名关键词兜底（规则集下载失败时仍能保护主流国内流量）。
+		rules = append(rules, map[string]any{"domain_keyword": fallbackCNKeywords, "outbound": "direct"})
 		rules = append(rules, map[string]any{"protocol": "dns", "action": "sniff"})
 	}
 
@@ -269,37 +298,54 @@ func CompileManaged(settings store.Settings, nodes []store.NodeRecord, ruleSets 
 	return mustIndent(doc), summary, nil
 }
 
-func buildDNS(settings store.Settings) map[string]any {
+func buildDNS(settings store.Settings, cnSets []string) map[string]any {
 	// sing-box >= 1.12.0: 新 DNS 格式，type + server 字段，final 用兜底规则替代。
 	// 注意（1.13+）：DNS server 不写 detour 即为直连解析；显式 "detour": "direct" 会触发
-	// “detour to an empty direct outbound makes no sense” 启动失败。
+	// "detour to an empty direct outbound makes no sense" 启动失败。
+	// 国内域名用 local-dns（223.5.5.5 UDP）直连解析，避免 DNS 泄露到代理出口。
 	if settings.DNSPreset == "real" {
+		dnsRules := buildCNDNSRules(cnSets)
+		dnsRules = append(dnsRules, map[string]any{"server": "remote-dns"})
 		return map[string]any{
 			"servers": []map[string]any{
 				{"type": "https", "tag": "remote-dns", "server": "1.1.1.1"},
 				{"type": "udp", "tag": "local-dns", "server": "223.5.5.5"},
 			},
-			"rules": []map[string]any{
-				{"server": "local-dns"},
-			},
+			"rules":             dnsRules,
 			"strategy":          "prefer_ipv4",
 			"independent_cache": true,
 		}
 	}
+	// fakeip 模式：国内域名用 local-dns 直连解析，境外域名走 fakeip。
+	dnsRules := buildCNDNSRules(cnSets)
+	dnsRules = append(dnsRules,
+		map[string]any{"query_type": []any{"A", "AAAA"}, "server": "fakeip-dns"},
+		map[string]any{"server": "remote-dns"},
+	)
 	return map[string]any{
 		"servers": []map[string]any{
 			{"type": "https", "tag": "remote-dns", "server": "1.1.1.1"},
 			{"type": "udp", "tag": "bootstrap-dns", "server": "223.5.5.5"},
+			{"type": "udp", "tag": "local-dns", "server": "223.5.5.5"},
 			{
 				"type": "fakeip", "tag": "fakeip-dns",
 				"inet4_range": "198.18.0.0/15", "inet6_range": "fc00::/18",
 			},
 		},
-		"rules": []map[string]any{
-			{"query_type": []any{"A", "AAAA"}, "server": "fakeip-dns"},
-			{"server": "remote-dns"},
-		},
+		"rules":             dnsRules,
 		"independent_cache": true,
+	}
+}
+
+// buildCNDNSRules 构建国内域名 DNS 分流规则：规则集可用时精确匹配，否则用常见顶级域兜底。
+func buildCNDNSRules(cnSets []string) []map[string]any {
+	if len(cnSets) > 0 {
+		return []map[string]any{
+			{"rule_set": cnSets, "server": "local-dns"},
+		}
+	}
+	return []map[string]any{
+		{"domain_suffix": fallbackCNTLDs, "server": "local-dns"},
 	}
 }
 
