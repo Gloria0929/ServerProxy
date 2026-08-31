@@ -163,6 +163,14 @@ func (a *DevAdapter) SelectNode(ctx context.Context, groupTag, nodeID string) er
 	return fmt.Errorf("策略组 %s 不存在", groupTag)
 }
 
+// SetMode 切换代理模式（开发适配器：仅记录日志）。
+func (a *DevAdapter) SetMode(ctx context.Context, mode string) error {
+	if a.logger != nil {
+		a.logger(LogLine{Time: time.Now(), Level: "info", Component: "control-plane", Message: "代理模式已切换为 " + mode})
+	}
+	return nil
+}
+
 // TestDelay 并发模拟延迟测试，返回更新节点数。
 func (a *DevAdapter) TestDelay(ctx context.Context) (int, error) {
 	a.mu.Lock()

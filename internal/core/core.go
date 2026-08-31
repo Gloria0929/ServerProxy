@@ -88,6 +88,8 @@ type Adapter interface {
 	ListGroups(ctx context.Context) ([]Group, error)
 	// SelectNode 切换 selector 的选中节点；不触发配置重载。
 	SelectNode(ctx context.Context, groupTag, nodeID string) error
+	// SetMode 切换代理模式（rule/global/direct），通过 Clash API 直接生效，不触发内核重启。
+	SetMode(ctx context.Context, mode string) error
 	// TestDelay 对全部节点发起延迟测试并更新缓存。
 	TestDelay(ctx context.Context) (int, error)
 	// ListConnections 返回活动连接。

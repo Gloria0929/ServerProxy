@@ -767,6 +767,20 @@ func (a *SingBoxAdapter) SelectNode(ctx context.Context, groupTag, nodeID string
 	return nil
 }
 
+// SetMode 切换代理模式（rule/global/direct），通过 Clash API 直接生效，不触发内核重启。
+func (a *SingBoxAdapter) SetMode(ctx context.Context, mode string) error {
+	payload, _ := json.Marshal(map[string]string{"mode": mode})
+	body, status, err := a.request(ctx, http.MethodPatch, "/configs", payload)
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return fmt.Errorf("切换模式失败（%d）：%s", status, strings.TrimSpace(string(body)))
+	}
+	a.emit("info", "core", "代理模式已切换为 "+mode)
+	return nil
+}
+
 // TestDelay 对全部策略组节点发起延迟测试并缓存结果，返回测试节点数。
 func (a *SingBoxAdapter) TestDelay(ctx context.Context) (int, error) {
 	groups, err := a.ListGroups(ctx)

@@ -523,7 +523,17 @@ func RegisterRoutes(d Deps) *http.ServeMux {
 			return
 		}
 		d.Collect.Audit(actor(r), d.Server.clientIP(r), "settings.update", "", "ok", TraceID(r.Context()))
-		if wasManaged || patch.ProxyMode != "" || patch.ProxyDomains != nil {
+		// 仅代理模式变更时通过 Clash API 直接切换，不触发内核重启（避免 TUN 重启导致 SSH 断开）。
+		modeOnly := wasManaged && patch.ProxyMode != "" &&
+			patch.LANAccess == nil && patch.TUNEnabled == nil &&
+			patch.DNSPreset == "" && patch.MixedPort == nil &&
+			patch.ProxyDomains == nil
+		if modeOnly {
+			if err := d.Adapter.SetMode(r.Context(), patch.ProxyMode); err != nil {
+				writeError(w, TraceID(r.Context()), 502, "core", err.Error())
+				return
+			}
+		} else if wasManaged || patch.ProxyMode != "" || patch.ProxyDomains != nil {
 			if _, err := d.CompileAndApply(r.Context(), actor(r), "settings"); err != nil {
 				writeError(w, TraceID(r.Context()), 400, "apply", err.Error())
 				return
