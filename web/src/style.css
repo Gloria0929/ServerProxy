@@ -81,7 +81,7 @@ button:disabled {
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  position: fixed
+  position: fixed;
 }
 .login-card h1 {
   margin: 12px 0 10px;
@@ -1034,6 +1034,18 @@ textarea:focus {
   font-size: 13px;
   line-height: 1.6;
 }
+.domains-box {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 10px;
+  width: 300px;
+}
+.domains-box textarea {
+  min-height: 96px;
+  padding: 10px 12px;
+  resize: vertical;
+}
 .switch {
   position: relative;
   display: inline-block;
@@ -1057,7 +1069,9 @@ textarea:focus {
   border: 1px solid #4a5347;
   border-radius: 99px;
   background: #2c342a;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
 }
 .switch .slider::after {
   content: "";
@@ -1068,7 +1082,9 @@ textarea:focus {
   height: 18px;
   border-radius: 50%;
   background: #97a392;
-  transition: transform 0.15s ease, background 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease;
 }
 .switch input:checked + .slider {
   border-color: #5e8644;

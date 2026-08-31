@@ -449,6 +449,22 @@
                     @change="toggleTun" /><span class="slider"></span>
                 </label>
               </div>
+              <div class="setting-row">
+                <div>
+                  <h3>强制代理域名</h3>
+                  <p>
+                    每行一个域名（如 openlaw.cn），规则模式下这些域名始终走代理节点，优先级高于国内直连规则。
+                    保存后自动重新编译并应用配置。
+                  </p>
+                </div>
+                <div class="domains-box">
+                  <textarea :value="proxyDomainsText" rows="3" spellcheck="false" placeholder="openlaw.cn"
+                    @input="onDomainsInput"></textarea>
+                  <button class="button quiet" type="button" :disabled="actionLoading" @click="saveProxyDomains">
+                    保存域名规则
+                  </button>
+                </div>
+              </div>
               <dl>
                 <div>
                   <dt>Web 监听</dt>
@@ -632,6 +648,7 @@ interface PanelSettings {
   lan_access: boolean;
   tun_enabled: boolean;
   tun_name: string;
+  proxy_domains: string[];
   dns_preset: string;
   mixed_port: number;
   trusted_proxies: string[] | null;
@@ -895,6 +912,9 @@ async function load() {
     revisions.value = nextRevisions ?? [];
     metrics.value = nextMetrics ?? [];
     settings.value = nextSettings ?? null;
+    if (!domainsDirty) {
+      proxyDomainsText.value = (nextSettings?.proxy_domains ?? []).join("\n");
+    }
   } catch (reason) {
     ElMessage.error(
       reason instanceof Error ? reason.message : "无法加载管理数据",
@@ -1002,6 +1022,27 @@ function toggleTun(event: Event) {
       body: JSON.stringify({ tun_enabled: enabled }),
     }),
   );
+}
+
+const proxyDomainsText = ref("");
+let domainsDirty = false;
+function onDomainsInput(event: Event) {
+  domainsDirty = true;
+  proxyDomainsText.value = (event.target as HTMLTextAreaElement).value;
+}
+function saveProxyDomains() {
+  const domains = proxyDomainsText.value
+    .split(/[\n,;，；]+/)
+    .map((d) => d.trim())
+    .filter(Boolean);
+  void doAction("域名规则保存", async () => {
+    const result = await api("/settings", {
+      method: "PATCH",
+      body: JSON.stringify({ proxy_domains: domains }),
+    });
+    domainsDirty = false;
+    return result;
+  });
 }
 
 function setProxyMode(mode: string) {

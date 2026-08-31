@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"proxypanel/internal/config"
@@ -459,12 +461,13 @@ func RegisterRoutes(d Deps) *http.ServeMux {
 
 	mux.HandleFunc("PATCH /api/v1/settings", func(w http.ResponseWriter, r *http.Request) {
 		var patch struct {
-			LANAccess  *bool    `json:"lan_access"`
-			Whitelist  []string `json:"whitelist"`
-			TUNEnabled *bool    `json:"tun_enabled"`
-			DNSPreset  string   `json:"dns_preset"`
-			MixedPort  *int     `json:"mixed_port"`
-			ProxyMode  string   `json:"proxy_mode"`
+			LANAccess    *bool    `json:"lan_access"`
+			Whitelist    []string `json:"whitelist"`
+			TUNEnabled   *bool    `json:"tun_enabled"`
+			DNSPreset    string   `json:"dns_preset"`
+			MixedPort    *int     `json:"mixed_port"`
+			ProxyMode    string   `json:"proxy_mode"`
+			ProxyDomains []string `json:"proxy_domains"`
 		}
 		if err := readBody(r, &patch); err != nil {
 			writeError(w, TraceID(r.Context()), 400, "bad_request", err.Error())
@@ -491,6 +494,14 @@ func RegisterRoutes(d Deps) *http.ServeMux {
 		if patch.MixedPort != nil {
 			settings.MixedPort = *patch.MixedPort
 		}
+		if patch.ProxyDomains != nil {
+			domains, err := normalizeDomains(patch.ProxyDomains)
+			if err != nil {
+				writeError(w, TraceID(r.Context()), 400, "bad_request", err.Error())
+				return
+			}
+			settings.ProxyDomains = domains
+		}
 		if patch.ProxyMode != "" {
 			switch patch.ProxyMode {
 			case "rule", "global", "direct":
@@ -499,12 +510,12 @@ func RegisterRoutes(d Deps) *http.ServeMux {
 				writeError(w, TraceID(r.Context()), 400, "bad_request", "无效的代理模式")
 				return
 			}
-			// 代理模式是面板的一等能力：即使当前是自定义（非托管）配置档，
-			// 切换模式也会让面板重新接管配置编译，保证模式真正生效。
-			if !wasManaged {
-				settings.Mode = "managed"
-				d.Collect.Logs().Append("info", "config", "切换代理模式：自定义配置档已恢复为面板托管编译")
-			}
+		}
+		// 代理模式与强制代理域名都会改变路由编译结果：即使当前是自定义（非托管）配置档，
+		// 也恢复为面板托管编译，保证设置真正生效。
+		if !wasManaged && (patch.ProxyMode != "" || patch.ProxyDomains != nil) {
+			settings.Mode = "managed"
+			d.Collect.Logs().Append("info", "config", "路由设置更新：自定义配置档已恢复为面板托管编译")
 		}
 		settings.UpdatedAt = time.Now().UTC()
 		if err := d.SaveSettings(settings); err != nil {
@@ -512,7 +523,7 @@ func RegisterRoutes(d Deps) *http.ServeMux {
 			return
 		}
 		d.Collect.Audit(actor(r), d.Server.clientIP(r), "settings.update", "", "ok", TraceID(r.Context()))
-		if wasManaged || patch.ProxyMode != "" {
+		if wasManaged || patch.ProxyMode != "" || patch.ProxyDomains != nil {
 			if _, err := d.CompileAndApply(r.Context(), actor(r), "settings"); err != nil {
 				writeError(w, TraceID(r.Context()), 400, "apply", err.Error())
 				return
@@ -525,6 +536,30 @@ func RegisterRoutes(d Deps) *http.ServeMux {
 	mux.HandleFunc("GET /api/v1/events", sseHandler(d))
 
 	return mux
+}
+
+// normalizeDomains 规范化域名列表：去空白、小写、剥离前导通配符，并校验合法域名。
+func normalizeDomains(in []string) ([]string, error) {
+	out := make([]string, 0, len(in))
+	seen := make(map[string]struct{}, len(in))
+	for _, raw := range in {
+		d := strings.TrimSpace(raw)
+		if d == "" {
+			continue
+		}
+		d = strings.ToLower(d)
+		d = strings.TrimPrefix(d, "*.")
+		d = strings.TrimPrefix(d, ".")
+		if strings.ContainsAny(d, "/: \t") {
+			return nil, fmt.Errorf("域名格式无效（只接受纯域名，如 example.com）：%s", raw)
+		}
+		if _, ok := seen[d]; ok {
+			continue
+		}
+		seen[d] = struct{}{}
+		out = append(out, d)
+	}
+	return out, nil
 }
 
 func sseHandler(d Deps) http.HandlerFunc {

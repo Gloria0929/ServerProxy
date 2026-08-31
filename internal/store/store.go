@@ -180,7 +180,8 @@ type Settings struct {
 	LANAccess      bool      `json:"lan_access"`
 	TUNEnabled     bool      `json:"tun_enabled"`
 	TUNName        string    `json:"tun_name"`
-	DNSPreset      string    `json:"dns_preset"` // fakeip | real
+	ProxyDomains   []string  `json:"proxy_domains"` // 强制走代理的域名（规则模式生效）
+	DNSPreset      string    `json:"dns_preset"`    // fakeip | real
 	MixedPort      int       `json:"mixed_port"`
 	TrustedProxies []string  `json:"trusted_proxies"`
 	UpdatedAt      time.Time `json:"updated_at"`
@@ -189,14 +190,15 @@ type Settings struct {
 // DefaultSettings 返回安全默认值：回环监听、托管模式、mixed 入站。
 func DefaultSettings() Settings {
 	return Settings{
-		WebListen: "127.0.0.1:9090",
-		Mode:      "managed",
-		ProxyMode: "rule",
-		Whitelist: []string{},
-		TUNName:   "sp-tun",
-		DNSPreset: "fakeip",
-		MixedPort: 7897,
-		UpdatedAt: time.Now().UTC(),
+		WebListen:    "127.0.0.1:9090",
+		Mode:         "managed",
+		ProxyMode:    "rule",
+		Whitelist:    []string{},
+		ProxyDomains: []string{},
+		TUNName:      "sp-tun",
+		DNSPreset:    "fakeip",
+		MixedPort:    7897,
+		UpdatedAt:    time.Now().UTC(),
 	}
 }
 
