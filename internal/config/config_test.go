@@ -31,6 +31,7 @@ func (s *stubAdapter) ListGroups(context.Context) ([]core.Group, error) {
 	return nil, nil
 }
 func (s *stubAdapter) SelectNode(context.Context, string, string) error { return nil }
+func (s *stubAdapter) SetMode(context.Context, string) error              { return nil }
 func (s *stubAdapter) TestDelay(context.Context) (int, error)           { return 0, nil }
 func (s *stubAdapter) ListConnections(context.Context) ([]core.Connection, error) {
 	return nil, nil
