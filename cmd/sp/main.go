@@ -42,6 +42,10 @@ func main() {
 		showLogs(os.Args[2:])
 	case "check":
 		check(os.Args[2:])
+		case "mode":
+			switchMode(os.Args[2:])
+		case "tun":
+			toggleTUN(os.Args[2:])
 	case "install-service":
 		installService(os.Args[2:])
 	case "install-kernel":
@@ -215,6 +219,47 @@ func installService(args []string) {
 	fmt.Println("wrote", *output)
 }
 
+func switchMode(args []string) {
+	if len(args) < 1 {
+		exitError(fmt.Errorf("用法: sp mode <rule|global|direct> [--endpoint ...] [--secret ...]"))
+	}
+	mode := args[0]
+	if mode != "rule" && mode != "global" && mode != "direct" {
+		exitError(fmt.Errorf("模式必须为 rule、global 或 direct"))
+	}
+	payload, _ := json.Marshal(map[string]string{"proxy_mode": mode})
+	response, err := authedRequest(args[1:], http.MethodPatch, "/api/v1/settings", payload)
+	if err != nil {
+		exitError(err)
+	}
+	defer response.Body.Close()
+	io.Copy(os.Stdout, response.Body)
+	fmt.Println()
+}
+
+func toggleTUN(args []string) {
+	if len(args) < 1 {
+		exitError(fmt.Errorf("用法: sp tun <on|off> [--endpoint ...] [--secret ...]"))
+	}
+	enabled := false
+	switch args[0] {
+	case "on":
+		enabled = true
+	case "off":
+		enabled = false
+	default:
+		exitError(fmt.Errorf("参数必须为 on 或 off"))
+	}
+	payload, _ := json.Marshal(map[string]bool{"tun_enabled": enabled})
+	response, err := authedRequest(args[1:], http.MethodPatch, "/api/v1/settings", payload)
+	if err != nil {
+		exitError(err)
+	}
+	defer response.Body.Close()
+	io.Copy(os.Stdout, response.Body)
+	fmt.Println()
+}
+
 func authedRequest(args []string, method, path string, body []byte) (*http.Response, error) {
 	fs := flag.NewFlagSet("request", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -290,6 +335,8 @@ Usage:
   sp serve [--listen 127.0.0.1:9090] [--secret ...]
   sp status [--endpoint ...] [--secret ...]
   sp switch <group> <node> [--endpoint ...] [--secret ...]
+  sp mode <rule|global|direct> [--endpoint ...] [--secret ...]
+  sp tun <on|off> [--endpoint ...] [--secret ...]
   sp update | sp reload | sp restart | sp log
   sp check <config.json>
   sp install-service [--output serverproxy.service]
