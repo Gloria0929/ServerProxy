@@ -141,7 +141,38 @@ var fallbackCNTLDs = []string{"cn", "com.cn", "net.cn", "org.cn", "gov.cn", "edu
 var fallbackCNKeywords = []string{
 	"baidu", "qq", "taobao", "alipay", "weixin",
 	"163", "sina", "sohu", "douyin", "bilibili",
-	"zhihu", "jd", "mi", "huawei", "xiaomi",
+	"zhihu", "huawei", "xiaomi",
+}
+
+// 规则模式下始终走代理的境外域名（无需用户配置，内置保障）。
+var builtinProxyDomains = []string{
+	"google.com", "googleapis.com", "gstatic.com",
+	"github.com", "githubusercontent.com",
+	"telegram.org", "telegram.me", "t.me",
+	"youtube.com", "ytimg.com", "googlevideo.com",
+	"twitter.com", "x.com", "twimg.com",
+	"facebook.com", "fbcdn.net", "instagram.com",
+	"openai.com", "chatgpt.com", "claude.ai",
+	"whatsapp.com", "whatsapp.net",
+	"reddit.com", "redd.it",
+	"spotify.com", "spotifycdn.com",
+	"discord.com", "discord.gg", "discord.media",
+	"slack.com", "slack-edge.com",
+	"notion.so", "notion.com",
+	"figma.com", "figma.com",
+	"microsoft.com", "live.com", "office.com", "office.net",
+	"apple.com", "icloud.com",
+	"amazon.com", "aws.amazon.com",
+	"cloudflare.com", "cloudflare.net",
+	"npmjs.com", "docker.com",
+	"stackoverflow.com", "stackexchange.com",
+	"medium.com", "substack.com",
+	"wikipedia.org", "wikimedia.org",
+	"dropbox.com", "dropboxapi.com",
+	"zoom.us", "zoom.com",
+	"fast.com", "speedtest.net",
+	"binance.com", "binance.us",
+	"openai.com", "anthropic.com",
 }
 
 // CompileManaged 由期望状态编译 sing-box 候选配置。
@@ -253,6 +284,8 @@ func CompileManaged(settings store.Settings, nodes []store.NodeRecord, ruleSets 
 			// 强制代理域名：优先级高于国内直连规则（如 openlaw.cn 等需要走代理的域名）。
 			rules = append(rules, map[string]any{"domain_suffix": settings.ProxyDomains, "outbound": manualTag})
 		}
+			// 内置境外域名：github、google、telegram 等始终走代理，优先级高于国内直连。
+			rules = append(rules, map[string]any{"domain_suffix": builtinProxyDomains, "outbound": manualTag})
 		if len(adsSets) > 0 {
 			rules = append(rules, map[string]any{"rule_set": adsSets, "action": "reject"})
 		}
