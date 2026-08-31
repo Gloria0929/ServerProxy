@@ -274,10 +274,10 @@ func CompileManaged(settings store.Settings, nodes []store.NodeRecord, ruleSets 
 	switch mode {
 	case "global":
 		final = manualTag
-		rules = []map[string]any{{"action": "sniff"}, {"protocol": "dns", "outbound": "direct"}}
+		rules = []map[string]any{{"action": "sniff"}, {"protocol": "dns", "action": "sniff"}}
 	case "direct":
 		final = "direct"
-		rules = []map[string]any{{"action": "sniff"}, {"protocol": "dns", "outbound": "direct"}}
+		rules = []map[string]any{{"action": "sniff"}, {"protocol": "dns", "action": "sniff"}}
 	default: // rule
 		final = manualTag
 		rules = []map[string]any{{"action": "sniff"}}
@@ -292,7 +292,6 @@ func CompileManaged(settings store.Settings, nodes []store.NodeRecord, ruleSets 
 		}
 		rules = append(rules, map[string]any{"ip_is_private": true, "outbound": "direct"})
 		// DNS 协议流量显式直连，防止回落至代理出口。
-		rules = append(rules, map[string]any{"protocol": "dns", "outbound": "direct"})
 		// 中国 IP 直连（geoip-cn）。
 		if len(geoipSets) > 0 {
 			rules = append(rules, map[string]any{"rule_set": geoipSets, "outbound": "direct"})
