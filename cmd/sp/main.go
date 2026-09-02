@@ -42,10 +42,10 @@ func main() {
 		showLogs(os.Args[2:])
 	case "check":
 		check(os.Args[2:])
-		case "mode":
-			switchMode(os.Args[2:])
-		case "tun":
-			toggleTUN(os.Args[2:])
+	case "mode":
+		switchMode(os.Args[2:])
+	case "tun":
+		toggleTUN(os.Args[2:])
 	case "install-service":
 		installService(os.Args[2:])
 	case "install-kernel":
@@ -59,7 +59,7 @@ func main() {
 
 func serve(args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	listen := fs.String("listen", "127.0.0.1:9090", "HTTP listen address")
+	listen := fs.String("listen", "", "HTTP listen address（默认：$SP_LISTEN > settings.web_listen > 127.0.0.1:9090）")
 	secret := fs.String("secret", os.Getenv("SP_SECRET"), "web login secret")
 	dataDir := fs.String("data-dir", os.Getenv("SP_DATA_DIR"), "runtime data directory")
 	coreName := fs.String("core", os.Getenv("SP_CORE"), "core adapter: dev|singbox")
@@ -89,6 +89,16 @@ func serve(args []string) {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "unable to initialise ServerProxy:", err)
 		os.Exit(1)
+	}
+	// 监听地址优先级：--listen 参数 > SP_LISTEN 环境变量 > settings.web_listen > 默认回环。
+	if *listen == "" {
+		*listen = os.Getenv("SP_LISTEN")
+	}
+	if *listen == "" {
+		*listen = service.Settings().WebListen
+	}
+	if *listen == "" {
+		*listen = "127.0.0.1:9090"
 	}
 	if *secret == "" {
 		if generated := service.BootstrapSecret(); generated != "" {

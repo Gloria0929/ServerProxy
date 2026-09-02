@@ -31,7 +31,11 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStartPre=-/usr/local/bin/sp check %[1]s/runtime/config.json
-ExecStart=/usr/local/bin/sp serve --listen 127.0.0.1:9090 --data-dir %[1]s --core singbox
+ExecStart=/usr/local/bin/sp serve --data-dir %[1]s --core singbox
+# 监听地址默认 127.0.0.1:9090；需要局域网/公网访问时加 drop-in：
+#   systemctl edit serverproxy
+#   [Service]
+#   Environment=SP_LISTEN=:9090
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=3s
