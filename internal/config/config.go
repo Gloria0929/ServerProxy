@@ -219,11 +219,13 @@ func CompileManaged(settings store.Settings, nodes []store.NodeRecord, ruleSets 
 	if settings.TUNEnabled {
 		// 注意：不写 interface_name，交给 sing-box 自动分配 utunN/tunN。
 		// sing-box 1.13 在 macOS 上只接受 utunN 形式的名称，写入任意名称（如 sp-tun）会导致内核启动失败。
+		// 注意：不要写 "sniff" 等入站级字段 —— 1.11 起废弃、1.13 已移除，否则内核报
+		// "legacy inbound fields ... removed in sing-box 1.13.0"；嗅探由 route.rules 中的
+		// {"action":"sniff"} 规则动作承担。
 		inbounds = append(inbounds, map[string]any{
 			"type": "tun", "tag": "tun-in",
 			"address": []string{"172.19.0.1/30", "fdfe:dcba:9876::1/126"},
 			"mtu":     1500, "auto_route": true, "strict_route": true, "stack": "mixed",
-				"sniff": true,
 		})
 	}
 
@@ -285,8 +287,8 @@ func CompileManaged(settings store.Settings, nodes []store.NodeRecord, ruleSets 
 			// 强制代理域名：优先级高于国内直连规则（如 openlaw.cn 等需要走代理的域名）。
 			rules = append(rules, map[string]any{"domain_suffix": settings.ProxyDomains, "outbound": manualTag})
 		}
-			// 内置境外域名：github、google、telegram 等始终走代理，优先级高于国内直连。
-			rules = append(rules, map[string]any{"domain_suffix": builtinProxyDomains, "outbound": manualTag})
+		// 内置境外域名：github、google、telegram 等始终走代理，优先级高于国内直连。
+		rules = append(rules, map[string]any{"domain_suffix": builtinProxyDomains, "outbound": manualTag})
 		if len(adsSets) > 0 {
 			rules = append(rules, map[string]any{"rule_set": adsSets, "action": "reject"})
 		}

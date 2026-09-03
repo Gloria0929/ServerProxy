@@ -31,7 +31,7 @@ func (s *stubAdapter) ListGroups(context.Context) ([]core.Group, error) {
 	return nil, nil
 }
 func (s *stubAdapter) SelectNode(context.Context, string, string) error { return nil }
-func (s *stubAdapter) SetMode(context.Context, string) error              { return nil }
+func (s *stubAdapter) SetMode(context.Context, string) error            { return nil }
 func (s *stubAdapter) TestDelay(context.Context) (int, error)           { return 0, nil }
 func (s *stubAdapter) ListConnections(context.Context) ([]core.Connection, error) {
 	return nil, nil
@@ -131,7 +131,15 @@ func TestApplySuccessAndRollback(t *testing.T) {
 	if err != nil || !strings.Contains(string(rolled), `"tag": "direct"`) || strings.Contains(string(rolled), "direct2") {
 		t.Fatalf("回滚后 runtime 内容异常: %s (%v)", rolled, err)
 	}
-	// last-known-good 备份存在。
+	// 第三次应用成功 → 发布前把上一份（即回滚后的 runtime）备份为 last-known-good。
+	adapter.failApply = false
+	rev3, err := m.Apply(context.Background(), validConfig(), "editor", "web", false)
+	if err != nil {
+		t.Fatalf("apply3: %v", err)
+	}
+	if rev3.State != "applied" {
+		t.Fatalf("state = %s", rev3.State)
+	}
 	if _, err := os.Stat(m.root.Path("runtime", "last-known-good.json")); err != nil {
 		t.Fatalf("缺少 last-known-good: %v", err)
 	}
